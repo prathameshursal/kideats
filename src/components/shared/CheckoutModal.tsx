@@ -1,5 +1,6 @@
+import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { X, Send, Sparkles, PartyPopper, AlertTriangle, ShoppingCart } from 'lucide-react';
+import { X, Send, Sparkles, PartyPopper, AlertTriangle, ShoppingCart, MessageSquare } from 'lucide-react';
 import type { Meal, KidProfile } from '../../types';
 import { TAG_META } from '../../types';
 
@@ -20,8 +21,8 @@ interface Props {
   isPreApproved: boolean;
   isOverBudget: boolean;
   isBlocked: boolean;
-  onConfirm: () => void;
-  onRequestApproval: () => void;
+  onConfirm: (note?: string) => void;
+  onRequestApproval: (note?: string) => void;
   onClose: () => void;
 }
 
@@ -51,6 +52,7 @@ function ConfettiParticle({ index }: { index: number }) {
 export default function CheckoutModal({ meal, kid, isPreApproved, isOverBudget, isBlocked, onConfirm, onRequestApproval, onClose }: Props) {
   const withinBudget = !isOverBudget;
   const autoApproved = isPreApproved && withinBudget && !isBlocked;
+  const [kidNote, setKidNote] = useState('');
 
   return (
     <motion.div
@@ -106,7 +108,7 @@ export default function CheckoutModal({ meal, kid, isPreApproved, isOverBudget, 
             </div>
 
             <motion.button
-              onClick={onConfirm}
+              onClick={() => onConfirm(kidNote || undefined)}
               whileTap={{ scale: 0.95 }}
               className="w-full py-3 bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-bold rounded-2xl min-h-[48px]"
             >
@@ -146,8 +148,23 @@ export default function CheckoutModal({ meal, kid, isPreApproved, isOverBudget, 
               </div>
             </div>
 
+            <div className="mb-4">
+              <div className="flex items-center gap-1.5 mb-1.5">
+                <MessageSquare size={12} className="text-gray-400" />
+                <span className="text-xs font-medium text-gray-500">Add a note for Mom/Dad</span>
+              </div>
+              <input
+                type="text"
+                value={kidNote}
+                onChange={e => setKidNote(e.target.value)}
+                placeholder="e.g. Please! I'll eat veggies tomorrow..."
+                className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-amber-300"
+                maxLength={100}
+              />
+            </div>
+
             <motion.button
-              onClick={onRequestApproval}
+              onClick={() => onRequestApproval(kidNote || undefined)}
               whileTap={{ scale: 0.95 }}
               className="w-full flex items-center justify-center gap-2 py-3 bg-gradient-to-r from-orange-400 to-amber-400 text-white font-bold rounded-2xl min-h-[48px]"
             >
@@ -203,21 +220,23 @@ export default function CheckoutModal({ meal, kid, isPreApproved, isOverBudget, 
               </div>
             </div>
 
-            {/* Waiting animation */}
-            <div className="flex items-center justify-center gap-1 mb-4">
-              {[0, 1, 2].map(i => (
-                <motion.div
-                  key={i}
-                  className="w-2 h-2 bg-blue-400 rounded-full"
-                  animate={{ y: [0, -8, 0] }}
-                  transition={{ duration: 0.6, repeat: Infinity, delay: i * 0.2 }}
-                />
-              ))}
-              <span className="text-xs text-blue-400 ml-2">Waiting for approval...</span>
+            <div className="mb-4">
+              <div className="flex items-center gap-1.5 mb-1.5">
+                <MessageSquare size={12} className="text-gray-400" />
+                <span className="text-xs font-medium text-gray-500">Add a note for Mom/Dad</span>
+              </div>
+              <input
+                type="text"
+                value={kidNote}
+                onChange={e => setKidNote(e.target.value)}
+                placeholder="e.g. For my sports practice today!"
+                className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-blue-300"
+                maxLength={100}
+              />
             </div>
 
             <motion.button
-              onClick={onRequestApproval}
+              onClick={() => onRequestApproval(kidNote || undefined)}
               whileTap={{ scale: 0.95 }}
               className={`w-full flex items-center justify-center gap-2 py-3 bg-gradient-to-r ${TAG_META[meal.tags[0]]?.bg ?? 'from-blue-400 to-cyan-400'} text-white font-bold rounded-2xl min-h-[48px]`}
             >

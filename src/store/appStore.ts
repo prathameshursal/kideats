@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { KidProfile, Meal, ScheduleSlot, Order, AppNotification, DashboardRole } from '../types';
+import type { KidProfile, Meal, ScheduleSlot, Order, AppNotification, DashboardRole, AutoApproveRule, Reward, FamilyChallenge, RewardRedemption, MealRating, WeeklyPointChallenge, LeaderboardEntry } from '../types';
 import { DEFAULT_KIDS, DEFAULT_MEALS } from '../types';
 
 interface AppState {
@@ -13,6 +13,13 @@ interface AppState {
   meals: Meal[];
   weeklyPlan: ScheduleSlot[];
   orders: Order[];
+  autoApproveRules: AutoApproveRule[];
+  rewards: Reward[];
+  familyChallenges: FamilyChallenge[];
+  rewardRedemptions: RewardRedemption[];
+  mealRatings: MealRating[];
+  weeklyPointChallenge: WeeklyPointChallenge | null;
+  leaderboardHistory: LeaderboardEntry[];
 
   currentRole: DashboardRole;
   currentKidId: string;
@@ -37,16 +44,35 @@ interface AppState {
   removeScheduleSlot: (day: string, mealType: string) => void;
   togglePreApproved: (day: string, mealType: string) => void;
 
-  placeOrder: (kidId: string, mealId: string, autoApproved: boolean) => string;
+  placeOrder: (kidId: string, mealId: string, autoApproved: boolean, kidNote?: string) => string;
   approveOrder: (orderId: string) => void;
+  bulkApproveOrders: (orderIds: string[]) => void;
   rejectOrder: (orderId: string, reason: string) => void;
   advanceDelivery: (orderId: string) => void;
   markDelivered: (orderId: string) => void;
+
+  addAutoApproveRule: (rule: Omit<AutoApproveRule, 'id'>) => void;
+  updateAutoApproveRule: (ruleId: string, updates: Partial<AutoApproveRule>) => void;
+  removeAutoApproveRule: (ruleId: string) => void;
+
+  addReward: (reward: Omit<Reward, 'id'>) => void;
+  removeReward: (rewardId: string) => void;
+  redeemReward: (kidId: string, rewardId: string) => boolean;
+
+  addFamilyChallenge: (challenge: Omit<FamilyChallenge, 'id' | 'currentProgress' | 'completed'>) => void;
+  updateChallengeProgress: (challengeId: string, kidId: string, increment: number) => void;
+  removeFamilyChallenge: (challengeId: string) => void;
 
   addNotification: (n: Omit<AppNotification, 'id' | 'timestamp' | 'read'>) => void;
   markNotificationRead: (id: string) => void;
   markAllNotificationsRead: () => void;
   clearNotifications: () => void;
+
+  rateMeal: (kidId: string, mealId: string, rating: MealRating['rating']) => void;
+
+  setWeeklyPointChallenge: (targetPoints: number, bonusCredit: number) => void;
+  resolveWeeklyChallenge: (winnerId: string) => void;
+  clearWeeklyChallenge: () => void;
 
   resetAllData: () => void;
 }
@@ -65,6 +91,13 @@ export const useAppStore = create<AppState>()(
       meals: DEFAULT_MEALS,
       weeklyPlan: [],
       orders: [],
+      autoApproveRules: [],
+      rewards: [],
+      familyChallenges: [],
+      rewardRedemptions: [],
+      mealRatings: [],
+      weeklyPointChallenge: null,
+      leaderboardHistory: [],
 
       currentRole: 'kid',
       currentKidId: 'kid_1',
@@ -139,7 +172,7 @@ export const useAppStore = create<AppState>()(
         ),
       })),
 
-      placeOrder: (kidId, mealId, autoApproved) => {
+      placeOrder: (kidId, mealId, autoApproved, kidNote) => {
         const state = get();
         const meal = state.meals.find(m => m.id === mealId);
         const kid = state.kids.find(k => k.id === kidId);
@@ -164,6 +197,7 @@ export const useAppStore = create<AppState>()(
           status,
           timestamp: Date.now(),
           price: meal.price,
+          kidNote,
           deliveryStages,
         };
 
@@ -258,6 +292,10 @@ export const useAppStore = create<AppState>()(
         });
       },
 
+      bulkApproveOrders: (orderIds) => {
+        orderIds.forEach(id => get().approveOrder(id));
+      },
+
       rejectOrder: (orderId, reason) => {
         const state = get();
         const order = state.orders.find(o => o.id === orderId);
@@ -335,6 +373,75 @@ export const useAppStore = create<AppState>()(
         }
       },
 
+      addAutoApproveRule: (rule) => set(s => ({
+        autoApproveRules: [...s.autoApproveRules, { ...rule, id: generateId() }],
+      })),
+
+      updateAutoApproveRule: (ruleId, updates) => set(s => ({
+        autoApproveRules: s.autoApproveRules.map(r => r.id === ruleId ? { ...r, ...updates } : r),
+      })),
+
+      removeAutoApproveRule: (ruleId) => set(s => ({
+        autoApproveRules: s.autoApproveRules.filter(r => r.id !== ruleId),
+      })),
+
+      addReward: (reward) => set(s => ({
+        rewards: [...s.rewards, { ...reward, id: generateId() }],
+      })),
+
+      removeReward: (rewardId) => set(s => ({
+        rewards: s.rewards.filter(r => r.id !== rewardId),
+      })),
+
+      redeemReward: (kidId, rewardId) => {
+        const state = get();
+        const reward = state.rewards.find(r => r.id === rewardId);
+        const kid = state.kids.find(k => k.id === kidId);
+        if (!reward || !kid || kid.veggiePoints < reward.pointCost) return false;
+
+        set(s => ({
+          kids: s.kids.map(k => k.id === kidId ? { ...k, veggiePoints: k.veggiePoints - reward.pointCost } : k),
+          rewardRedemptions: [...s.rewardRedemptions, {
+            id: generateId(),
+            kidId,
+            rewardId,
+            timestamp: Date.now(),
+            pointsSpent: reward.pointCost,
+          }],
+        }));
+
+        get().addNotification({
+          type: 'badge',
+          message: `${reward.emoji} You redeemed "${reward.name}"! Show this to Mom/Dad.`,
+          kidId,
+        });
+        return true;
+      },
+
+      addFamilyChallenge: (challenge) => set(s => ({
+        familyChallenges: [...s.familyChallenges, {
+          ...challenge,
+          id: generateId(),
+          currentProgress: {},
+          completed: false,
+        }],
+      })),
+
+      updateChallengeProgress: (challengeId, kidId, increment) => set(s => ({
+        familyChallenges: s.familyChallenges.map(c => {
+          if (c.id !== challengeId || c.completed) return c;
+          const prev = c.currentProgress[kidId] ?? 0;
+          const next = prev + increment;
+          const newProgress = { ...c.currentProgress, [kidId]: next };
+          const totalProgress = Object.values(newProgress).reduce((sum, v) => sum + v, 0);
+          return { ...c, currentProgress: newProgress, completed: totalProgress >= c.targetCount };
+        }),
+      })),
+
+      removeFamilyChallenge: (challengeId) => set(s => ({
+        familyChallenges: s.familyChallenges.filter(c => c.id !== challengeId),
+      })),
+
       addNotification: (n) => set(s => ({
         notifications: [{
           ...n,
@@ -354,6 +461,62 @@ export const useAppStore = create<AppState>()(
 
       clearNotifications: () => set({ notifications: [] }),
 
+      rateMeal: (kidId, mealId, rating) => set(s => {
+        const existing = s.mealRatings.findIndex(r => r.kidId === kidId && r.mealId === mealId);
+        const newRating: MealRating = { kidId, mealId, rating, timestamp: Date.now() };
+        if (existing >= 0) {
+          const updated = [...s.mealRatings];
+          updated[existing] = newRating;
+          return { mealRatings: updated };
+        }
+        return { mealRatings: [...s.mealRatings, newRating] };
+      }),
+
+      setWeeklyPointChallenge: (targetPoints, bonusCredit) => set({
+        weeklyPointChallenge: {
+          id: generateId(),
+          targetPoints,
+          bonusCredit,
+          weekStart: Date.now(),
+          winnerId: null,
+          active: true,
+        },
+      }),
+
+      resolveWeeklyChallenge: (winnerId) => {
+        const state = get();
+        const challenge = state.weeklyPointChallenge;
+        if (!challenge || !challenge.active) return;
+        const winner = state.kids.find(k => k.id === winnerId);
+        if (!winner) return;
+
+        const otherKids = state.kids.filter(k => k.id !== winnerId);
+        const runnerUpPoints = Math.max(...otherKids.map(k => k.veggiePoints), 0);
+
+        set(s => ({
+          weeklyPointChallenge: { ...challenge, winnerId, active: false },
+          kids: s.kids.map(k => k.id === winnerId ? { ...k, walletBalance: k.walletBalance + challenge.bonusCredit } : k),
+          leaderboardHistory: [
+            {
+              weekStart: challenge.weekStart,
+              winnerId,
+              winnerName: winner.name,
+              winnerPoints: winner.veggiePoints,
+              runnerUpPoints,
+            },
+            ...s.leaderboardHistory,
+          ].slice(0, 10),
+        }));
+
+        get().addNotification({
+          type: 'badge',
+          message: `${winner.name} won the weekly challenge! +Rs ${challenge.bonusCredit} bonus!`,
+          kidId: winnerId,
+        });
+      },
+
+      clearWeeklyChallenge: () => set({ weeklyPointChallenge: null }),
+
       resetAllData: () => set({
         parentPin: '1234',
         isParentAuthenticated: false,
@@ -363,6 +526,13 @@ export const useAppStore = create<AppState>()(
         meals: DEFAULT_MEALS,
         weeklyPlan: [],
         orders: [],
+        autoApproveRules: [],
+        rewards: [],
+        familyChallenges: [],
+        rewardRedemptions: [],
+        mealRatings: [],
+        weeklyPointChallenge: null,
+        leaderboardHistory: [],
         currentRole: 'kid',
         currentKidId: 'kid_1',
         notifications: [],

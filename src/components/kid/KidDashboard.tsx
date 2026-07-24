@@ -1,15 +1,19 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence, useMotionValue, useTransform, animate } from 'framer-motion';
-import { Utensils, Package, Star, Bell, Wallet, Sparkles, Zap, AlertTriangle, Lock, Trophy, Clock, Flame, Plus, CheckCircle, XCircle, Truck, ChefHat, Gift, ChevronDown, RotateCcw } from 'lucide-react';
+import { Utensils, Package, Star, Bell, Wallet, Sparkles, Zap, AlertTriangle, Lock, Trophy, Clock, Flame, Plus, CheckCircle, XCircle, Truck, ChefHat, Gift, ChevronDown, RotateCcw, ShieldAlert, Target, ShoppingCart, Heart, Lightbulb } from 'lucide-react';
 import { useAppStore } from '../../store/appStore';
 import { TAG_META, BADGE_DEFS, DAYS } from '../../types';
 import type { KidProfile, Meal, Order } from '../../types';
 import CheckoutModal from '../shared/CheckoutModal';
 import BadgeUnlockModal from '../shared/BadgeUnlockModal';
+import RatingModal from './RatingModal';
+import SmartSuggestions, { isMealDisliked, isMealFavorite } from './SmartSuggestions';
 
 const KID_TABS = [
+  { id: 'smart', label: 'For You', icon: Lightbulb },
   { id: 'discover', label: 'Explore', icon: Utensils },
   { id: 'orders', label: 'Orders', icon: Package },
+  { id: 'rewards', label: 'Rewards', icon: Gift },
   { id: 'badges', label: 'Badges', icon: Star },
   { id: 'alerts', label: 'Alerts', icon: Bell },
 ];
@@ -22,6 +26,634 @@ function AnimatedCounter({ value }: { value: number }) {
     return controls.stop;
   }, [value, motionVal]);
   return <motion.span>{display}</motion.span>;
+}
+
+function StreakWidget({ streak, kidName }: { streak: number; kidName: string }) {
+  const days = Array.from({ length: 14 }, (_, i) => i < streak);
+  const milestones = [
+    { day: 3, label: 'Bronze', color: 'from-amber-600 to-yellow-700', emoji: '🥉' },
+    { day: 7, label: 'Silver', color: 'from-gray-400 to-slate-500', emoji: '🥈' },
+    { day: 14, label: 'Gold', color: 'from-yellow-400 to-amber-500', emoji: '🥇' },
+  ];
+  const currentMilestone = milestones.filter(m => streak >= m.day).pop();
+  const nextMilestone = milestones.find(m => streak < m.day);
+  const isStreakBroken = streak === 0;
+
+  if (isStreakBroken) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, scale: 0.9 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className="bg-gradient-to-r from-gray-100 to-slate-100 rounded-2xl p-4 border-2 border-dashed border-gray-300"
+      >
+        <div className="flex items-center gap-3">
+          <div className="text-3xl opacity-40">🔥</div>
+          <div className="flex-1">
+            <p className="font-black text-gray-700 text-sm">Streak broken!</p>
+            <p className="text-xs text-gray-500 mt-0.5">Don't worry, {kidName}! One healthy meal today restarts your streak.</p>
+          </div>
+        </div>
+        <motion.div
+          className="mt-3 bg-white rounded-xl p-2.5 flex items-center gap-2"
+          animate={{ scale: [1, 1.02, 1] }}
+          transition={{ duration: 2, repeat: Infinity }}
+        >
+          <Flame size={16} className="text-orange-400" />
+          <span className="text-xs font-bold text-gray-700">Restart your streak today!</span>
+          <span className="ml-auto text-xs text-emerald-600 font-semibold">Order a meal</span>
+        </motion.div>
+      </motion.div>
+    );
+  }
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.9 }}
+      animate={{ opacity: 1, scale: 1 }}
+      className="bg-gradient-to-r from-orange-500 to-red-500 rounded-2xl p-3 shadow-lg relative overflow-hidden"
+    >
+      {/* Background flame particles */}
+      {streak >= 3 && Array.from({ length: 5 }).map((_, i) => (
+        <motion.div
+          key={i}
+          className="absolute w-1.5 h-1.5 bg-yellow-300/40 rounded-full"
+          style={{ left: `${20 + i * 15}%`, bottom: '10%' }}
+          animate={{
+            y: [-0, -30, -60],
+            opacity: [0, 1, 0],
+            scale: [0.5, 1, 0.3],
+          }}
+          transition={{ duration: 1.5 + i * 0.3, repeat: Infinity, delay: i * 0.4 }}
+        />
+      ))}
+
+      <div className="relative z-10 flex items-center gap-3">
+        <motion.div
+          animate={streak >= 3 ? { scale: [1, 1.2, 1], rotate: [0, -5, 5, 0] } : {}}
+          transition={{ duration: 1.5, repeat: Infinity }}
+          className="text-3xl"
+        >
+          🔥
+        </motion.div>
+        <div className="flex-1">
+          <p className="text-white font-black text-sm">{streak}-Day Streak!</p>
+          <p className="text-white/70 text-xs">
+            {nextMilestone ? `${nextMilestone.day - streak} more for ${nextMilestone.label} ${nextMilestone.emoji}` : 'MAX STREAK! Champion status!'}
+          </p>
+        </div>
+        {currentMilestone && (
+          <motion.div
+            initial={{ scale: 0, rotate: -30 }}
+            animate={{ scale: 1, rotate: 0 }}
+            className="flex items-center gap-1 bg-white/25 rounded-full px-2.5 py-1"
+          >
+            <span className="text-lg">{currentMilestone.emoji}</span>
+            <span className="text-xs font-bold text-white">{currentMilestone.label}</span>
+          </motion.div>
+        )}
+      </div>
+
+      {/* Milestone markers */}
+      <div className="relative z-10 flex items-center gap-0.5 mt-2">
+        {days.slice(0, 14).map((active, i) => {
+          const isMilestone = milestones.some(m => m.day === i + 1);
+          return (
+            <motion.div
+              key={i}
+              initial={{ scale: 0 }}
+              animate={{ scale: 1 }}
+              transition={{ delay: i * 0.05, type: 'spring' }}
+              className={`flex-1 rounded-full relative ${
+                active ? (isMilestone ? 'h-3 bg-yellow-200' : 'h-2 bg-yellow-300') : 'h-2 bg-white/20'
+              }`}
+            >
+              {active && i === streak - 1 && (
+                <motion.div
+                  className="w-full h-full rounded-full bg-yellow-200"
+                  animate={{ opacity: [1, 0.5, 1] }}
+                  transition={{ duration: 1, repeat: Infinity }}
+                />
+              )}
+            </motion.div>
+          );
+        })}
+      </div>
+
+      {/* Milestone labels */}
+      <div className="relative z-10 flex justify-between mt-1 px-0.5">
+        <span className="text-white/50 text-[9px]">Day 1</span>
+        <span className="text-white/50 text-[9px]">🥉 3</span>
+        <span className="text-white/50 text-[9px]">🥈 7</span>
+        <span className="text-white/50 text-[9px]">🥇 14</span>
+      </div>
+    </motion.div>
+  );
+}
+
+function WeeklyChallengeCards({ kid }: { kid: KidProfile }) {
+  const orders = useAppStore(s => s.orders);
+  const meals = useAppStore(s => s.meals);
+  const familyChallenges = useAppStore(s => s.familyChallenges);
+
+  const weekMs = 7 * 86400000;
+  const now = Date.now();
+  const weekOrders = orders.filter(o =>
+    o.kidId === kid.id &&
+    o.status !== 'Rejected' &&
+    (now - o.timestamp) < weekMs
+  );
+
+  // Auto-generated challenges based on kid data
+  const proteinMeals = new Set(
+    weekOrders
+      .map(o => meals.find(m => m.id === o.mealId))
+      .filter(m => m && parseInt(m.nutrition.protein) >= 14)
+      .map(m => m!.id)
+  );
+  const greenVegOrdered = weekOrders.some(o => {
+    const meal = meals.find(m => m.id === o.mealId);
+    return meal && (meal.tags.includes('Cold Salad') || meal.name.toLowerCase().includes('palak') || meal.name.toLowerCase().includes('spinach'));
+  });
+  const weekSpent = weekOrders.reduce((sum, o) => sum + o.price, 0);
+
+  interface ChallengeCard {
+    id: string;
+    title: string;
+    progress: number;
+    target: number;
+    reward: string;
+    daysLeft: number;
+    color: string;
+    emoji: string;
+  }
+
+  const autoChallenges: ChallengeCard[] = [
+    {
+      id: 'protein',
+      title: 'Try 3 different proteins this week',
+      progress: proteinMeals.size,
+      target: 3,
+      reward: '+50 pts',
+      daysLeft: Math.max(0, 7 - Math.floor((now - (weekOrders[0]?.timestamp ?? now)) / 86400000)),
+      color: 'from-blue-400 to-cyan-500',
+      emoji: '💪',
+    },
+    {
+      id: 'green-veg',
+      title: 'Order a green vegetable dish',
+      progress: greenVegOrdered ? 1 : 0,
+      target: 1,
+      reward: '+100 bonus pts',
+      daysLeft: 5,
+      color: 'from-emerald-400 to-green-500',
+      emoji: '🥬',
+    },
+    {
+      id: 'budget',
+      title: 'Stay under Rs 500 total this week',
+      progress: Math.min(weekSpent, 500),
+      target: 500,
+      reward: 'Budget Master',
+      daysLeft: 4,
+      color: 'from-amber-400 to-orange-500',
+      emoji: '💰',
+    },
+  ];
+
+  // Add active family challenges as cards
+  const activeFamilyChallenges: ChallengeCard[] = familyChallenges
+    .filter(c => !c.completed && c.deadline > now)
+    .slice(0, 2)
+    .map(c => ({
+      id: c.id,
+      title: c.title,
+      progress: c.currentProgress[kid.id] ?? 0,
+      target: c.targetCount,
+      reward: `+${c.rewardPoints} pts`,
+      daysLeft: Math.max(0, Math.ceil((c.deadline - now) / 86400000)),
+      color: 'from-teal-400 to-emerald-500',
+      emoji: '👨‍👩‍👧‍👦',
+    }));
+
+  const allChallenges = [...activeFamilyChallenges, ...autoChallenges];
+
+  return (
+    <div className="relative z-10 px-4 pb-3">
+      <div className="flex items-center gap-2 mb-2">
+        <Target size={14} className="text-teal-600" />
+        <span className="text-xs font-bold text-gray-700">Weekly Challenges</span>
+      </div>
+      <div className="flex gap-3 overflow-x-auto pb-1 -mx-4 px-4 scrollbar-hide">
+        {allChallenges.map(challenge => {
+          const pct = challenge.id === 'budget'
+            ? Math.max(0, ((500 - challenge.progress) / 500) * 100)
+            : Math.min((challenge.progress / challenge.target) * 100, 100);
+          const isComplete = challenge.id === 'budget'
+            ? challenge.progress <= 500
+            : challenge.progress >= challenge.target;
+
+          return (
+            <motion.div
+              key={challenge.id}
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              className={`shrink-0 w-56 rounded-2xl p-3 shadow-sm border border-gray-100 ${
+                isComplete && challenge.id !== 'budget' ? 'bg-emerald-50' : 'bg-white'
+              }`}
+            >
+              <div className="flex items-start justify-between mb-2">
+                <span className="text-xl">{challenge.emoji}</span>
+                <span className="text-[10px] font-bold text-orange-500 bg-orange-50 px-1.5 py-0.5 rounded-full">
+                  {challenge.daysLeft}d left
+                </span>
+              </div>
+              <p className="text-xs font-bold text-gray-800 leading-tight mb-1.5">{challenge.title}</p>
+              <div className="mb-1.5">
+                <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                  <motion.div
+                    className={`h-full rounded-full bg-gradient-to-r ${challenge.color}`}
+                    initial={{ width: 0 }}
+                    animate={{ width: `${pct}%` }}
+                    transition={{ duration: 0.8, delay: 0.2 }}
+                  />
+                </div>
+                <div className="flex items-center justify-between mt-1">
+                  <span className="text-[10px] text-gray-400">
+                    {challenge.id === 'budget' ? `Rs ${challenge.progress}/500` : `${challenge.progress}/${challenge.target}`}
+                  </span>
+                  <span className="text-[10px] font-bold text-emerald-600">{challenge.reward}</span>
+                </div>
+              </div>
+              {isComplete && challenge.id !== 'budget' && (
+                <motion.div
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  className="flex items-center gap-1 text-emerald-600"
+                >
+                  <CheckCircle size={11} />
+                  <span className="text-[10px] font-bold">Complete!</span>
+                </motion.div>
+              )}
+            </motion.div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function AllergenBlockModal({ meal, allergens, onClose }: { meal: Meal; allergens: string[]; onClose: () => void }) {
+  return (
+    <motion.div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      onClick={onClose}
+    >
+      <motion.div
+        className="bg-white rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl"
+        initial={{ scale: 0.8, y: 50 }}
+        animate={{ scale: 1, y: 0 }}
+        exit={{ scale: 0.8, y: 50 }}
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="bg-gradient-to-br from-red-500 to-rose-600 p-6 text-center">
+          <motion.div
+            animate={{ scale: [1, 1.2, 1], rotate: [0, -10, 10, 0] }}
+            transition={{ duration: 0.8, repeat: 2 }}
+          >
+            <ShieldAlert size={48} className="mx-auto text-white mb-2" />
+          </motion.div>
+          <h3 className="text-xl font-black text-white">Allergen Alert!</h3>
+          <p className="text-white/80 text-sm mt-1">This food is not safe for you</p>
+        </div>
+
+        <div className="p-6">
+          <div className="flex items-center gap-3 bg-red-50 rounded-xl p-3 mb-4 border border-red-200">
+            <img src={meal.image} alt={meal.name} className="w-12 h-12 rounded-lg object-cover" />
+            <div className="flex-1">
+              <p className="font-bold text-gray-800 text-sm">{meal.name}</p>
+              <p className="text-xs text-red-600 font-medium">Contains: {allergens.join(', ')}</p>
+            </div>
+          </div>
+
+          <div className="bg-red-50 rounded-xl p-4 mb-4 border border-red-100">
+            <div className="flex items-start gap-2">
+              <AlertTriangle size={16} className="text-red-500 mt-0.5 shrink-0" />
+              <div>
+                <p className="text-sm font-bold text-red-800">You're allergic to {allergens.join(' & ')}</p>
+                <p className="text-xs text-red-600 mt-1">Your parents blocked this food to keep you safe. Talk to them if you think this is wrong.</p>
+              </div>
+            </div>
+          </div>
+
+          <motion.button
+            onClick={onClose}
+            whileTap={{ scale: 0.95 }}
+            className="w-full py-3 bg-gray-100 text-gray-700 font-bold rounded-2xl min-h-[48px]"
+          >
+            Got it, I'll pick something else!
+          </motion.button>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+function RewardsShop({ kid }: { kid: KidProfile }) {
+  const rewards = useAppStore(s => s.rewards);
+  const redeemReward = useAppStore(s => s.redeemReward);
+  const [redeemedId, setRedeemedId] = useState<string | null>(null);
+
+  const handleRedeem = (rewardId: string) => {
+    const success = redeemReward(kid.id, rewardId);
+    if (success) {
+      setRedeemedId(rewardId);
+      setTimeout(() => setRedeemedId(null), 3000);
+    }
+  };
+
+  if (rewards.length === 0) {
+    return (
+      <div className="text-center py-12">
+        <Gift size={40} className="mx-auto mb-3 text-gray-300" />
+        <p className="text-sm font-medium text-gray-400">No rewards available yet</p>
+        <p className="text-xs text-gray-400 mt-1">Ask your parents to add some rewards!</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <ShoppingCart size={18} className="text-amber-500" />
+          <h3 className="font-bold text-gray-800">Rewards Shop</h3>
+        </div>
+        <div className="flex items-center gap-1 bg-amber-50 px-2.5 py-1 rounded-full">
+          <Sparkles size={12} className="text-amber-500" />
+          <span className="text-sm font-bold text-amber-700">{kid.veggiePoints} pts</span>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {rewards.map(reward => {
+          const canAfford = kid.veggiePoints >= reward.pointCost;
+          const justRedeemed = redeemedId === reward.id;
+
+          return (
+            <motion.div
+              key={reward.id}
+              layout
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className={`bg-white rounded-2xl border shadow-sm p-4 ${justRedeemed ? 'border-emerald-300 bg-emerald-50' : 'border-gray-100'}`}
+            >
+              <div className="flex items-start gap-3 mb-3">
+                <span className="text-3xl">{reward.emoji}</span>
+                <div className="flex-1">
+                  <h4 className="font-bold text-gray-800 text-sm">{reward.name}</h4>
+                  <p className="text-xs text-gray-500">{reward.description}</p>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1">
+                  <Sparkles size={12} className="text-amber-500" />
+                  <span className="text-sm font-bold text-amber-600">{reward.pointCost} pts</span>
+                </div>
+
+                {justRedeemed ? (
+                  <motion.div
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    className="flex items-center gap-1 text-emerald-600 font-bold text-xs"
+                  >
+                    <CheckCircle size={14} />
+                    Redeemed!
+                  </motion.div>
+                ) : (
+                  <motion.button
+                    onClick={() => handleRedeem(reward.id)}
+                    whileTap={{ scale: 0.95 }}
+                    disabled={!canAfford}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold min-h-[36px] ${
+                      canAfford
+                        ? 'bg-gradient-to-r from-amber-400 to-orange-400 text-white'
+                        : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                    }`}
+                  >
+                    {canAfford ? 'Redeem' : 'Need more pts'}
+                  </motion.button>
+                )}
+              </div>
+            </motion.div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function FamilyChallenges(_props: { kid: KidProfile }) {
+  const challenges = useAppStore(s => s.familyChallenges);
+  const kids = useAppStore(s => s.kids);
+
+  const activeChallenges = challenges.filter(c => !c.completed && c.deadline > Date.now());
+  const completedChallenges = challenges.filter(c => c.completed);
+
+  if (challenges.length === 0) {
+    return (
+      <div className="text-center py-8 bg-gray-50 rounded-2xl">
+        <Target size={28} className="mx-auto mb-2 text-gray-300" />
+        <p className="text-sm text-gray-400 font-medium">No family challenges yet</p>
+        <p className="text-xs text-gray-400 mt-1">Ask parents to create one!</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2">
+        <Target size={18} className="text-teal-600" />
+        <h3 className="font-bold text-gray-800">Family Challenges</h3>
+      </div>
+
+      {activeChallenges.map(challenge => {
+        const totalProgress = Object.values(challenge.currentProgress).reduce((sum, v) => sum + v, 0);
+        const progressPercent = Math.min((totalProgress / challenge.targetCount) * 100, 100);
+        const daysLeft = Math.max(0, Math.ceil((challenge.deadline - Date.now()) / 86400000));
+
+        return (
+          <motion.div
+            key={challenge.id}
+            layout
+            className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4"
+          >
+            <div className="flex items-start justify-between mb-2">
+              <div>
+                <h4 className="font-bold text-gray-800 text-sm">{challenge.title}</h4>
+                <p className="text-xs text-gray-500">{challenge.description}</p>
+              </div>
+              <span className="text-xs font-bold text-orange-500 bg-orange-50 px-2 py-0.5 rounded-full">
+                {daysLeft}d left
+              </span>
+            </div>
+
+            <div className="mb-2">
+              <div className="flex items-center justify-between text-xs mb-1">
+                <span className="text-gray-500">{totalProgress}/{challenge.targetCount} completed</span>
+                <span className="font-bold text-teal-600">+{challenge.rewardPoints} pts</span>
+              </div>
+              <div className="h-3 bg-gray-100 rounded-full overflow-hidden">
+                <motion.div
+                  className="h-full bg-gradient-to-r from-teal-400 to-emerald-400 rounded-full"
+                  initial={{ width: 0 }}
+                  animate={{ width: `${progressPercent}%` }}
+                  transition={{ duration: 0.8 }}
+                />
+              </div>
+            </div>
+
+            {/* Per-kid progress */}
+            <div className="flex gap-2 mt-2">
+              {kids.map(k => {
+                const kidProg = challenge.currentProgress[k.id] ?? 0;
+                return (
+                  <div key={k.id} className="flex items-center gap-1 bg-gray-50 rounded-lg px-2 py-1">
+                    <span className="text-sm">{k.avatar}</span>
+                    <span className="text-xs font-bold text-gray-600">{kidProg}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </motion.div>
+        );
+      })}
+
+      {completedChallenges.length > 0 && (
+        <div className="pt-2">
+          <p className="text-xs font-bold text-gray-400 mb-2">Completed</p>
+          {completedChallenges.slice(0, 3).map(c => (
+            <div key={c.id} className="flex items-center gap-2 py-2 opacity-60">
+              <CheckCircle size={14} className="text-emerald-500" />
+              <span className="text-xs text-gray-600 font-medium">{c.title}</span>
+              <span className="text-xs text-emerald-600 ml-auto font-bold">+{c.rewardPoints} pts</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BadgesSection({ kid }: { kid: KidProfile }) {
+  const getBadgeProgress = (badge: typeof BADGE_DEFS[0]) => {
+    switch (badge.id) {
+      case 'First Order':
+        return { current: kid.uniqueMealsTried.length > 0 ? 1 : 0, target: 1 };
+      case 'Veggie Champion':
+        return { current: Math.min(kid.veggiePoints, 100), target: 100 };
+      case 'Healthy Streak':
+        return { current: Math.min(kid.currentStreak, 7), target: 7 };
+      case 'Budget Master':
+        return { current: Math.min(kid.ordersUnderBudget, 10), target: 10 };
+      case 'Salad Hero':
+        return { current: Math.min(kid.brainPowerOrders, 5), target: 5 };
+      case 'Explorer':
+        return { current: Math.min(kid.uniqueMealsTried.length, 6), target: 6 };
+      default:
+        return { current: 0, target: 1 };
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Trophy size={18} className="text-amber-500" />
+          <h3 className="font-bold text-gray-800 text-base">Your Badges</h3>
+        </div>
+        <span className="text-xs font-semibold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
+          {kid.badges.length}/{BADGE_DEFS.length}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        {BADGE_DEFS.map((badge, i) => {
+          const earned = kid.badges.includes(badge.id);
+          const progress = getBadgeProgress(badge);
+          const progressPct = Math.min((progress.current / progress.target) * 100, 100);
+
+          return (
+            <motion.div
+              key={badge.id}
+              initial={{ scale: 0, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={{ delay: i * 0.1, type: 'spring', damping: 15 }}
+              className={`flex flex-col items-center gap-2 p-3 rounded-2xl transition-all ${
+                earned ? `bg-gradient-to-b ${badge.color} shadow-md border-2 border-white/50` : 'bg-white border-2 border-gray-100 shadow-sm'
+              }`}
+            >
+              <div className="relative">
+                <motion.div
+                  className={`text-3xl ${earned ? '' : 'grayscale opacity-40'}`}
+                  animate={earned ? { scale: [1, 1.15, 1] } : {}}
+                  transition={earned ? { duration: 2, repeat: Infinity, repeatDelay: 3 } : {}}
+                >
+                  {earned ? badge.icon : <Lock size={24} className="text-gray-300" />}
+                </motion.div>
+                {earned && (
+                  <motion.div
+                    className="absolute -top-1 -right-1"
+                    animate={{ scale: [0, 1.2, 0], opacity: [0, 1, 0], rotate: [0, 180, 360] }}
+                    transition={{ duration: 1.5, repeat: Infinity, repeatDelay: 4 }}
+                  >
+                    <Sparkles size={10} className="text-amber-400" />
+                  </motion.div>
+                )}
+              </div>
+              <p className={`text-xs font-bold text-center leading-tight ${earned ? 'text-white' : 'text-gray-600'}`}>{badge.name}</p>
+
+              {earned ? (
+                <span className="text-xs text-white/80 font-semibold">Unlocked!</span>
+              ) : (
+                <div className="w-full">
+                  <div className="h-2 bg-gray-100 rounded-full overflow-hidden mb-0.5">
+                    <motion.div
+                      className={`h-full rounded-full bg-gradient-to-r ${badge.color}`}
+                      initial={{ width: 0 }}
+                      animate={{ width: `${progressPct}%` }}
+                      transition={{ duration: 1, delay: i * 0.15 }}
+                    />
+                  </div>
+                  <p className="text-[10px] text-gray-400 text-center font-medium">
+                    {progress.current}/{progress.target}
+                  </p>
+                </div>
+              )}
+            </motion.div>
+          );
+        })}
+      </div>
+
+      {(() => {
+        const nextBadge = BADGE_DEFS.find(b => !kid.badges.includes(b.id));
+        if (!nextBadge) return (
+          <motion.div
+            className="bg-gradient-to-r from-amber-50 to-orange-50 rounded-2xl p-4 border border-amber-200 text-center"
+            animate={{ scale: [1, 1.01, 1] }}
+            transition={{ duration: 2, repeat: Infinity }}
+          >
+            <p className="text-2xl mb-1">🏆</p>
+            <p className="text-sm font-bold text-amber-700">All badges unlocked! You're a champion!</p>
+          </motion.div>
+        );
+        return null;
+      })()}
+    </div>
+  );
 }
 
 function MealCard({ meal, onOrder, isPreApproved, isBlocked }: {
@@ -42,22 +674,20 @@ function MealCard({ meal, onOrder, isPreApproved, isBlocked }: {
       className={`bg-white rounded-2xl shadow-md overflow-hidden flex flex-col relative ${
         isBlocked ? 'opacity-60' : 'cursor-pointer'
       }`}
-      onClick={() => !isBlocked && onOrder(meal)}
+      onClick={() => onOrder(meal)}
       role="button"
       tabIndex={0}
       aria-label={`${meal.name}, Rs ${meal.price}`}
     >
-      {/* Blocked overlay */}
       {isBlocked && (
         <div className="absolute inset-0 z-10 bg-red-500/10 backdrop-blur-[1px] flex items-center justify-center">
           <div className="bg-red-500/90 text-white text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-1">
             <AlertTriangle size={10} />
-            Blocked by Parent
+            Blocked
           </div>
         </div>
       )}
 
-      {/* Pre-approved badge */}
       {isPreApproved && !isBlocked && (
         <div className="absolute top-2 right-2 z-10 flex items-center gap-0.5 bg-gradient-to-r from-emerald-400 to-teal-400 text-white text-xs font-bold px-2 py-0.5 rounded-full shadow-sm">
           <Zap size={9} className="fill-white" />
@@ -65,7 +695,6 @@ function MealCard({ meal, onOrder, isPreApproved, isBlocked }: {
         </div>
       )}
 
-      {/* Veg/Non-Veg indicator */}
       <div className="absolute top-2 left-2 z-10 flex items-center gap-1.5">
         <div className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-xs font-bold shadow-sm ${
           meal.isVeg ? 'bg-emerald-500 text-white' : 'bg-red-500 text-white'
@@ -143,7 +772,6 @@ function OrderTrackingCard({ order }: { order: Order }) {
 
   const currentStage = isRejected ? null : STAGES[completedStages - 1] ?? STAGES[0];
 
-  // Auto-advance delivery simulation
   useEffect(() => {
     if (isRejected || isDelivered || order.status === 'Pending Approval') return;
     const interval = setInterval(() => {
@@ -205,7 +833,6 @@ function OrderTrackingCard({ order }: { order: Order }) {
               <span className="text-xs font-bold">{currentStage.label}</span>
             </motion.div>
 
-            {/* Map visualization */}
             <div className="relative h-12 bg-gradient-to-r from-gray-50 to-gray-100 rounded-xl overflow-hidden border border-gray-200">
               <div className="absolute top-1/2 left-3 right-3 h-0.5 bg-gray-200 -translate-y-1/2" />
               <motion.div
@@ -225,18 +852,8 @@ function OrderTrackingCard({ order }: { order: Order }) {
                   <span className="text-sm">{i < completedStages ? s.emoji : '⚪'}</span>
                 </motion.div>
               ))}
-              {completedStages > 0 && completedStages < 4 && (
-                <motion.div
-                  className="absolute top-1/2 -translate-y-1/2 text-sm"
-                  animate={{ left: [`${3 + ((completedStages - 1) / 3) * 94}%`, `${3 + (completedStages / 3) * 94}%`] }}
-                  transition={{ duration: 1.5, ease: 'easeInOut' }}
-                >
-                  🏍️
-                </motion.div>
-              )}
             </div>
 
-            {/* Stage progress dots */}
             <div className="flex items-center gap-1">
               {STAGES.map((step, i) => {
                 const done = i < completedStages;
@@ -280,97 +897,6 @@ function OrderTrackingCard({ order }: { order: Order }) {
         )}
       </div>
     </motion.div>
-  );
-}
-
-function BadgesSection({ kid }: { kid: KidProfile }) {
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Trophy size={18} className="text-amber-500" />
-          <h3 className="font-bold text-gray-800 text-base">Your Badges</h3>
-        </div>
-        <span className="text-xs font-semibold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
-          {kid.badges.length}/{BADGE_DEFS.length}
-        </span>
-      </div>
-
-      <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide -mx-1 px-1">
-        {BADGE_DEFS.map((badge, i) => {
-          const earned = kid.badges.includes(badge.id);
-          return (
-            <motion.div
-              key={badge.id}
-              initial={{ scale: 0, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              transition={{ delay: i * 0.1, type: 'spring', damping: 15 }}
-              className={`flex flex-col items-center gap-1.5 p-3 rounded-2xl min-w-[100px] shrink-0 transition-all ${
-                earned ? `bg-gradient-to-b ${badge.color} shadow-sm border-2 border-white/50` : 'bg-gray-50 border-2 border-gray-100'
-              }`}
-            >
-              <div className="relative">
-                <motion.div
-                  className={`text-3xl ${earned ? '' : 'grayscale opacity-30'}`}
-                  animate={earned ? { scale: [1, 1.15, 1] } : {}}
-                  transition={earned ? { duration: 2, repeat: Infinity, repeatDelay: 3 } : {}}
-                >
-                  {earned ? badge.icon : <Lock size={24} className="text-gray-300" />}
-                </motion.div>
-                {earned && (
-                  <motion.div
-                    className="absolute -top-1 -right-1"
-                    animate={{ scale: [0, 1.2, 0], opacity: [0, 1, 0], rotate: [0, 180, 360] }}
-                    transition={{ duration: 1.5, repeat: Infinity, repeatDelay: 4 }}
-                  >
-                    <Sparkles size={10} className="text-amber-400" />
-                  </motion.div>
-                )}
-              </div>
-              <p className={`text-xs font-bold text-center leading-tight ${earned ? 'text-white' : 'text-gray-400'}`}>{badge.name}</p>
-              {!earned && <p className="text-xs text-gray-400">{BADGE_DEFS.find(b => b.id === badge.id)?.description}</p>}
-              {earned && <span className="text-xs text-white/80 font-semibold">Unlocked!</span>}
-            </motion.div>
-          );
-        })}
-      </div>
-
-      {/* Progress to next badge */}
-      {(() => {
-        const nextBadge = BADGE_DEFS.find(b => !kid.badges.includes(b.id));
-        if (!nextBadge) return (
-          <motion.div
-            className="bg-gradient-to-r from-amber-50 to-orange-50 rounded-2xl p-4 border border-amber-200 text-center"
-            animate={{ scale: [1, 1.01, 1] }}
-            transition={{ duration: 2, repeat: Infinity }}
-          >
-            <p className="text-2xl mb-1">🏆</p>
-            <p className="text-sm font-bold text-amber-700">All badges unlocked! You're a champion!</p>
-          </motion.div>
-        );
-        return (
-          <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2">
-                <span className="text-lg">{nextBadge.icon}</span>
-                <div>
-                  <p className="text-sm font-bold text-gray-800">Next: {nextBadge.name}</p>
-                  <p className="text-xs text-gray-500">{nextBadge.description}</p>
-                </div>
-              </div>
-            </div>
-            <div className="h-2.5 bg-gray-100 rounded-full overflow-hidden">
-              <motion.div
-                className="h-full bg-gradient-to-r from-emerald-400 to-teal-400 rounded-full"
-                initial={{ width: 0 }}
-                animate={{ width: `${Math.min((kid.veggiePoints / 100) * 100, 100)}%` }}
-                transition={{ duration: 1 }}
-              />
-            </div>
-          </div>
-        );
-      })()}
-    </div>
   );
 }
 
@@ -452,12 +978,15 @@ function NotificationPanel({ kidId }: { kidId: string }) {
 }
 
 export default function KidDashboard() {
-  const [tab, setTab] = useState('discover');
+  const [tab, setTab] = useState('smart');
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
   const [checkoutMeal, setCheckoutMeal] = useState<Meal | null>(null);
+  const [blockedMeal, setBlockedMeal] = useState<{ meal: Meal; allergens: string[] } | null>(null);
   const [showBadgeUnlock, setShowBadgeUnlock] = useState(false);
   const [showProfilePicker, setShowProfilePicker] = useState(false);
   const [toasts, setToasts] = useState<{ id: string; message: string }[]>([]);
+  const [ratingMeal, setRatingMeal] = useState<Meal | null>(null);
+  const [showDisliked, setShowDisliked] = useState(false);
 
   const kids = useAppStore(s => s.kids);
   const currentKidId = useAppStore(s => s.currentKidId);
@@ -468,6 +997,8 @@ export default function KidDashboard() {
   const notifications = useAppStore(s => s.notifications);
   const placeOrder = useAppStore(s => s.placeOrder);
   const setVegMode = useAppStore(s => s.setVegMode);
+  const mealRatings = useAppStore(s => s.mealRatings);
+  const rateMeal = useAppStore(s => s.rateMeal);
 
   const kid = kids.find(k => k.id === currentKidId) ?? kids[0];
   const kidOrders = orders.filter(o => o.kidId === kid.id);
@@ -480,20 +1011,30 @@ export default function KidDashboard() {
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3000);
   }, []);
 
-  // Get today's scheduled meals
   const today = DAYS[new Date().getDay() === 0 ? 6 : new Date().getDay() - 1];
   const todayScheduled = weeklyPlan.filter(s => s.day === today);
-  const scheduledMealIds = new Set(todayScheduled.map(s => s.mealId));
   const preApprovedMealIds = new Set(todayScheduled.filter(s => s.isPreApproved).map(s => s.mealId));
+  const scheduledMealIds = new Set(todayScheduled.map(s => s.mealId));
 
-  // Filter meals
   const filteredMeals = meals.filter(m => {
     if (!m.isKidSafe) return false;
     if (kid.vegMode === 'veg' && !m.isVeg) return false;
     if (kid.vegMode === 'nonveg' && m.isVeg) return false;
     if (activeFilters.length > 0 && !m.tags.some(t => activeFilters.includes(t))) return false;
+    if (!showDisliked && isMealDisliked(mealRatings, kid.id, m.id)) return false;
     return true;
   });
+
+  // Sort: favorites first
+  const sortedFilteredMeals = [...filteredMeals].sort((a, b) => {
+    const aFav = isMealFavorite(mealRatings, kid.id, a.id) ? 1 : 0;
+    const bFav = isMealFavorite(mealRatings, kid.id, b.id) ? 1 : 0;
+    return bFav - aFav;
+  });
+
+  const getMealAllergens = (meal: Meal) => {
+    return meal.allergens.filter(a => kid.allergies.includes(a));
+  };
 
   const isMealBlocked = (meal: Meal) => {
     const hasAllergen = meal.allergens.some(a => kid.allergies.includes(a));
@@ -508,23 +1049,28 @@ export default function KidDashboard() {
   };
 
   const handleOrderClick = (meal: Meal) => {
+    const allergens = getMealAllergens(meal);
+    if (allergens.length > 0) {
+      setBlockedMeal({ meal, allergens });
+      return;
+    }
     setCheckoutMeal(meal);
   };
 
-  const handleCheckoutConfirm = () => {
+  const handleCheckoutConfirm = (note?: string) => {
     if (!checkoutMeal) return;
     const isPreApproved = preApprovedMealIds.has(checkoutMeal.id);
     const isOverBudget = checkoutMeal.price > kid.walletBalance;
     const autoApproved = isPreApproved && !isOverBudget && !isMealBlocked(checkoutMeal);
 
-    placeOrder(kid.id, checkoutMeal.id, autoApproved);
+    placeOrder(kid.id, checkoutMeal.id, autoApproved, note);
     showToast(autoApproved ? 'Order placed! Chef is cooking!' : 'Sent for approval!');
     setCheckoutMeal(null);
   };
 
-  const handleRequestApproval = () => {
+  const handleRequestApproval = (note?: string) => {
     if (!checkoutMeal) return;
-    placeOrder(kid.id, checkoutMeal.id, false);
+    placeOrder(kid.id, checkoutMeal.id, false, note);
     showToast('Sent to Mom/Dad for approval!');
     setCheckoutMeal(null);
   };
@@ -537,7 +1083,6 @@ export default function KidDashboard() {
 
   const isLowBudget = kid.walletBalance < 50;
 
-  // Check for new badge unlocks
   const prevBadgesRef = useRef(kid.badges.length);
   useEffect(() => {
     if (kid.badges.length > prevBadgesRef.current) {
@@ -545,6 +1090,24 @@ export default function KidDashboard() {
     }
     prevBadgesRef.current = kid.badges.length;
   }, [kid.badges.length]);
+
+  // Show rating modal when an order is delivered and not yet rated
+  const prevDeliveredRef = useRef<Set<string>>(new Set(kidOrders.filter(o => o.status === 'Delivered').map(o => o.id)));
+  useEffect(() => {
+    const currentDelivered = new Set(kidOrders.filter(o => o.status === 'Delivered').map(o => o.id));
+    const newlyDelivered = [...currentDelivered].filter(id => !prevDeliveredRef.current.has(id));
+    if (newlyDelivered.length > 0 && !ratingMeal) {
+      const order = kidOrders.find(o => o.id === newlyDelivered[0]);
+      if (order) {
+        const meal = meals.find(m => m.id === order.mealId);
+        const alreadyRated = mealRatings.some(r => r.kidId === kid.id && r.mealId === order.mealId);
+        if (meal && !alreadyRated) {
+          setTimeout(() => setRatingMeal(meal), 1000);
+        }
+      }
+    }
+    prevDeliveredRef.current = currentDelivered;
+  }, [kidOrders, meals, mealRatings, kid.id, ratingMeal]);
 
   return (
     <div className="h-full flex flex-col relative overflow-hidden">
@@ -588,7 +1151,6 @@ export default function KidDashboard() {
                 <span className="text-xs font-bold text-white">Rs {kid.walletBalance}</span>
                 {isLowBudget && <AlertTriangle size={11} className="text-white animate-pulse" />}
               </motion.div>
-              {/* Veg/Non-Veg Toggle */}
               <motion.button
                 onClick={() => {
                   const next = kid.vegMode === 'both' ? 'veg' : kid.vegMode === 'veg' ? 'nonveg' : 'both';
@@ -625,7 +1187,15 @@ export default function KidDashboard() {
             )}
           </div>
         </div>
+
+        {/* Streak Widget */}
+        <div className="mt-3">
+          <StreakWidget streak={kid.currentStreak} kidName={kid.name} />
+        </div>
       </div>
+
+      {/* Weekly Challenge Cards */}
+      <WeeklyChallengeCards kid={kid} />
 
       {/* Filter Chips */}
       <div className="relative z-10 px-4 pb-2">
@@ -665,7 +1235,7 @@ export default function KidDashboard() {
       </div>
 
       {/* Tabs */}
-      <div className="relative z-10 flex gap-1 px-4 pb-2">
+      <div className="relative z-10 flex gap-1 px-4 pb-2 overflow-x-auto scrollbar-hide">
         {KID_TABS.map(t => {
           const Icon = t.icon;
           const isActive = tab === t.id;
@@ -674,7 +1244,7 @@ export default function KidDashboard() {
               key={t.id}
               onClick={() => setTab(t.id)}
               whileTap={{ scale: 0.95 }}
-              className={`flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-sm font-semibold min-h-[48px] ${
+              className={`flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-sm font-semibold min-h-[48px] whitespace-nowrap ${
                 isActive ? 'bg-teal-500 text-white shadow-sm' : 'text-gray-500 hover:bg-white/70'
               }`}
             >
@@ -691,10 +1261,21 @@ export default function KidDashboard() {
       {/* Content */}
       <div className="relative z-10 flex-1 overflow-y-auto px-4 pb-4">
         <AnimatePresence mode="wait">
+          {tab === 'smart' && (
+            <motion.div key="smart" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
+              <SmartSuggestions
+                kid={kid}
+                onOrderMeal={handleOrderClick}
+                showDisliked={showDisliked}
+                onToggleShowDisliked={() => setShowDisliked(p => !p)}
+              />
+            </motion.div>
+          )}
+
           {tab === 'discover' && (
             <motion.div key="discover" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {filteredMeals.map((meal, i) => (
+                {sortedFilteredMeals.map((meal, i) => (
                   <motion.div
                     key={meal.id}
                     initial={{ opacity: 0, y: 20 }}
@@ -712,6 +1293,15 @@ export default function KidDashboard() {
                         Mom's Pick
                       </motion.div>
                     )}
+                    {isMealFavorite(mealRatings, kid.id, meal.id) && (
+                      <motion.div
+                        className="absolute -top-1 -left-1 z-20 bg-white rounded-full p-1 shadow-sm border border-rose-100"
+                        initial={{ scale: 0 }}
+                        animate={{ scale: 1 }}
+                      >
+                        <Heart size={12} className="text-rose-500 fill-rose-500" />
+                      </motion.div>
+                    )}
                     <MealCard
                       meal={meal}
                       onOrder={handleOrderClick}
@@ -721,7 +1311,7 @@ export default function KidDashboard() {
                   </motion.div>
                 ))}
               </div>
-              {filteredMeals.length === 0 && (
+              {sortedFilteredMeals.length === 0 && (
                 <div className="text-center py-12 text-gray-400">
                   <Utensils size={36} className="mx-auto mb-2 opacity-30" />
                   <p className="text-sm">No meals match your filters</p>
@@ -741,6 +1331,13 @@ export default function KidDashboard() {
               ) : (
                 kidOrders.slice(0, 5).map(o => <OrderTrackingCard key={o.id} order={o} />)
               )}
+            </motion.div>
+          )}
+
+          {tab === 'rewards' && (
+            <motion.div key="rewards" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-6">
+              <RewardsShop kid={kid} />
+              <FamilyChallenges kid={kid} />
             </motion.div>
           )}
 
@@ -801,6 +1398,17 @@ export default function KidDashboard() {
         )}
       </AnimatePresence>
 
+      {/* Allergen Block Modal */}
+      <AnimatePresence>
+        {blockedMeal && (
+          <AllergenBlockModal
+            meal={blockedMeal.meal}
+            allergens={blockedMeal.allergens}
+            onClose={() => setBlockedMeal(null)}
+          />
+        )}
+      </AnimatePresence>
+
       {/* Checkout modal */}
       <AnimatePresence>
         {checkoutMeal && (
@@ -821,6 +1429,22 @@ export default function KidDashboard() {
       <AnimatePresence>
         {showBadgeUnlock && (
           <BadgeUnlockModal kid={kid} onClose={() => setShowBadgeUnlock(false)} />
+        )}
+      </AnimatePresence>
+
+      {/* Rating modal */}
+      <AnimatePresence>
+        {ratingMeal && (
+          <RatingModal
+            meal={ratingMeal}
+            onRate={(rating) => {
+              rateMeal(kid.id, ratingMeal.id, rating);
+              const labels = { love: 'Loved it!', meh: 'Noted!', dislike: 'Got it, hiding this one.' };
+              showToast(labels[rating]);
+              setRatingMeal(null);
+            }}
+            onSkip={() => setRatingMeal(null)}
+          />
         )}
       </AnimatePresence>
 

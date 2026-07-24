@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Leaf, Home, Utensils, Package, Users, RotateCcw } from 'lucide-react';
 import { useAppStore } from './store/appStore';
@@ -25,6 +25,36 @@ function AppContent() {
   const [showReset, setShowReset] = useState(false);
 
   const isParent = currentRole === 'parent';
+
+  // Auto-lock parent dashboard after 2 minutes inactivity
+  const inactivityTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const LOCK_TIMEOUT = 120000;
+
+  const resetInactivityTimer = useCallback(() => {
+    if (inactivityTimer.current) clearTimeout(inactivityTimer.current);
+    if (isParent && isParentAuthenticated) {
+      inactivityTimer.current = setTimeout(() => {
+        logoutParent();
+        switchRole('kid');
+      }, LOCK_TIMEOUT);
+    }
+  }, [isParent, isParentAuthenticated, logoutParent, switchRole]);
+
+  useEffect(() => {
+    if (!isParent || !isParentAuthenticated) {
+      if (inactivityTimer.current) clearTimeout(inactivityTimer.current);
+      return;
+    }
+
+    const events = ['mousedown', 'keydown', 'touchstart', 'scroll'];
+    events.forEach(e => window.addEventListener(e, resetInactivityTimer));
+    resetInactivityTimer();
+
+    return () => {
+      events.forEach(e => window.removeEventListener(e, resetInactivityTimer));
+      if (inactivityTimer.current) clearTimeout(inactivityTimer.current);
+    };
+  }, [isParent, isParentAuthenticated, resetInactivityTimer]);
 
   const handleRoleSwitch = (role: DashboardRole) => {
     if (role === 'parent') {
