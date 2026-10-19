@@ -366,8 +366,8 @@ function RewardsShop({ kid }: { kid: KidProfile }) {
   const redeemReward = useAppStore(s => s.redeemReward);
   const [redeemedId, setRedeemedId] = useState<string | null>(null);
 
-  const handleRedeem = (rewardId: string) => {
-    const success = redeemReward(kid.id, rewardId);
+  const handleRedeem = async (rewardId: string) => {
+    const success = await redeemReward(kid.id, rewardId);
     if (success) {
       setRedeemedId(rewardId);
       setTimeout(() => setRedeemedId(null), 3000);
@@ -1001,6 +1001,27 @@ export default function KidDashboard() {
   const rateMeal = useAppStore(s => s.rateMeal);
 
   const kid = kids.find(k => k.id === currentKidId) ?? kids[0];
+
+  if (!kid) {
+    return (
+      <div className="h-full flex items-center justify-center p-8">
+        <div className="text-center max-w-sm">
+          <motion.div
+            animate={{ y: [0, -8, 0] }}
+            transition={{ duration: 2, repeat: Infinity }}
+            className="text-5xl mb-4"
+          >
+            🍱
+          </motion.div>
+          <h2 className="text-xl font-bold text-gray-800 mb-2">No kid profiles yet</h2>
+          <p className="text-sm text-gray-500">
+            Ask a parent to switch to the Parent view and add a kid profile to get started!
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   const kidOrders = orders.filter(o => o.kidId === kid.id);
   const kidNotifs = notifications.filter(n => !n.kidId || n.kidId === kid.id);
   const unreadCount = kidNotifs.filter(n => !n.read).length;

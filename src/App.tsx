@@ -1,7 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Leaf, Home, Utensils, Package, Users, RotateCcw } from 'lucide-react';
+import { Leaf, Home, Utensils, Package, Users, RotateCcw, LogOut } from 'lucide-react';
 import { useAppStore } from './store/appStore';
+import { useAuth } from './hooks/useAuth';
+import { supabase } from './lib/supabase';
+import { seedMealsIfEmpty } from './lib/seed';
+import LoginPage from './components/auth/LoginPage';
 import RoleSwitcher from './components/shared/RoleSwitcher';
 import PinModal from './components/shared/PinModal';
 import ParentDashboard from './components/parent/ParentDashboard';
@@ -15,16 +19,34 @@ const pageVariants = {
 };
 
 function AppContent() {
+  const { user } = useAuth();
   const currentRole = useAppStore(s => s.currentRole);
   const switchRole = useAppStore(s => s.switchRole);
   const isParentAuthenticated = useAppStore(s => s.isParentAuthenticated);
   const logoutParent = useAppStore(s => s.logoutParent);
   const resetAllData = useAppStore(s => s.resetAllData);
+  const isHydrated = useAppStore(s => s.isHydrated);
+  const hydrateFromDb = useAppStore(s => s.hydrateFromDb);
   const [showPin, setShowPin] = useState(false);
   const [direction, setDirection] = useState(1);
   const [showReset, setShowReset] = useState(false);
+  const [showSignOut, setShowSignOut] = useState(false);
 
   const isParent = currentRole === 'parent';
+
+  // Load family data from database when user signs in
+  useEffect(() => {
+    if (user && !isHydrated) {
+      (async () => {
+        await seedMealsIfEmpty();
+        await hydrateFromDb();
+      })();
+    }
+    if (!user) {
+      // Reset store when signed out
+      useAppStore.setState({ isHydrated: false, isParentAuthenticated: false });
+    }
+  }, [user, isHydrated, hydrateFromDb]);
 
   // Auto-lock parent dashboard after 2 minutes inactivity
   const inactivityTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -72,6 +94,35 @@ function AppContent() {
     setShowPin(false);
   };
 
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    setShowSignOut(false);
+  };
+
+  // Show login page when not authenticated
+  if (!user) {
+    return <LoginPage />;
+  }
+
+  // Show loading while hydrating data
+  if (!isHydrated) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-gradient-to-br from-emerald-50 via-teal-50 to-cyan-50">
+        <div className="text-center">
+          <motion.div
+            animate={{ rotate: 360 }}
+            transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
+            className="w-12 h-12 mx-auto mb-4"
+          >
+            <Leaf size={48} className="text-teal-500" />
+          </motion.div>
+          <p className="text-lg font-bold text-gray-700">Loading KidEats...</p>
+          <p className="text-sm text-gray-400 mt-1">Restoring your data</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={`min-h-screen flex flex-col transition-colors duration-500 ${
       isParent
@@ -100,7 +151,17 @@ function AppContent() {
               </p>
             </div>
           </div>
-          <RoleSwitcher role={currentRole} onSwitch={handleRoleSwitch} />
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowSignOut(true)}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-full text-white/80 hover:text-white hover:bg-white/10 transition-all text-sm font-medium min-h-[44px]"
+              aria-label="Sign out"
+            >
+              <LogOut size={16} />
+              <span className="hidden sm:inline">Sign Out</span>
+            </button>
+            <RoleSwitcher role={currentRole} onSwitch={handleRoleSwitch} />
+          </div>
         </div>
       </header>
 
@@ -223,22 +284,57 @@ function AppContent() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Sign out confirmation */}
+      <AnimatePresence>
+        {showSignOut && (
+          <motion.div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowSignOut(false)}
+          >
+            <motion.div
+              className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl"
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="flex flex-col items-center mb-4">
+                <div className="w-12 h-12 bg-red-100 rounded-2xl flex items-center justify-center mb-3">
+                  <LogOut className="text-red-500" size={24} />
+                </div>
+                <h3 className="font-bold text-gray-800 text-lg">Sign Out?</h3>
+                <p className="text-sm text-gray-500 mt-1 text-center">You'll need to sign in again to access your family data.</p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleSignOut}
+                  className="flex-1 py-3 bg-red-500 text-white font-bold rounded-2xl min-h-[48px]"
+                >
+                  Sign Out
+                </button>
+                <button
+                  onClick={() => setShowSignOut(false)}
+                  className="flex-1 py-3 bg-gray-100 text-gray-600 font-bold rounded-2xl min-h-[48px]"
+                >
+                  Cancel
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
 
 export default function App() {
-  const [hydrated, setHydrated] = useState(false);
+  const { loading } = useAuth();
 
-  useEffect(() => {
-    const unsub = useAppStore.persist.onFinishHydration(() => {
-      setHydrated(true);
-    });
-    setHydrated(useAppStore.persist.hasHydrated());
-    return unsub;
-  }, []);
-
-  if (!hydrated) {
+  if (loading) {
     return (
       <div className="flex items-center justify-center h-screen bg-gradient-to-br from-emerald-50 via-teal-50 to-cyan-50">
         <div className="text-center">
@@ -249,8 +345,7 @@ export default function App() {
           >
             <Leaf size={48} className="text-teal-500" />
           </motion.div>
-          <p className="text-lg font-bold text-gray-700">Loading KidEats...</p>
-          <p className="text-sm text-gray-400 mt-1">Restoring your data</p>
+          <p className="text-lg font-bold text-gray-700">KidEats</p>
         </div>
       </div>
     );

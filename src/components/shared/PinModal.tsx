@@ -72,7 +72,6 @@ export default function PinModal({ onSuccess, onCancel }: Props) {
           </div>
           <h2 className="text-xl font-bold text-gray-800">Parent Access</h2>
           <p className="text-sm text-gray-500 mt-1">Enter your 4-digit PIN</p>
-          <p className="text-xs text-gray-400 mt-0.5">(Default: 1234)</p>
         </div>
 
         {isLocked ? (
