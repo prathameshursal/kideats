@@ -197,26 +197,34 @@ export default function LoginPage() {
     setInfo(null);
 
     const redirectTo = window.location.origin;
-    const { error } = await supabase.auth.signInWithOAuth({
+    // Google blocks its sign-in page inside iframes (e.g. the editor preview), so open it in a new tab there.
+    const inIframe = window.self !== window.top;
+
+    const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: {
-        redirectTo,
-        queryParams: { access_type: 'offline', prompt: 'consent' },
-      },
+      options: { redirectTo, skipBrowserRedirect: inIframe },
     });
 
     if (error) {
       const msg = error.message.toLowerCase();
-      if (msg.includes('provider') || msg.includes('not enabled') || msg.includes('oauth')) {
-        setError('Google sign-in isn\'t configured yet. Please enable it in your Supabase project\'s Authentication settings (see the Google SSO guide).');
-      } else if (msg.includes('redirect')) {
-        setError(`Redirect URL not allowed. Add "${redirectTo}" to your Supabase Auth redirect URLs.`);
+      if (msg.includes('not enabled') || msg.includes('unsupported provider')) {
+        setError('Google sign-in isn\'t turned on yet. Enable it in your project\'s Authentication settings.');
       } else {
         setError(error.message);
       }
       setLoading(null);
+      return;
     }
-    // On success, the browser redirects away — no need to clear loading
+
+    if (inIframe && data?.url) {
+      const win = window.open(data.url, '_blank', 'noopener');
+      setLoading(null);
+      if (!win) {
+        setError('Your browser blocked the Google sign-in window. Allow pop-ups, or open the published site directly.');
+      } else {
+        setInfo('Google sign-in opened in a new tab. Finish signing in there.');
+      }
+    }
   };
 
   const handleSendOtp = async () => {
@@ -364,6 +372,12 @@ export default function LoginPage() {
                   <Phone size={20} />
                   Continue with Phone
                 </button>
+
+                {info && (
+                  <p className="text-center text-sm text-teal-600 font-medium flex items-center justify-center gap-1 pt-2">
+                    <Check size={14} /> {info}
+                  </p>
+                )}
 
                 {error && (
                   <motion.div
